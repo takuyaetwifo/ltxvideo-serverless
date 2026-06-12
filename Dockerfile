@@ -24,3 +24,4 @@ RUN pip install --no-cache-dir \
 
 COPY handler.py /app/handler.py
 CMD ["python", "-u", "/app/handler.py"]
+# rebuilt Sat Jun 13 07:02:45     2026
