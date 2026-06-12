@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir \
     accelerate \
     sentencepiece \
     "imageio[ffmpeg]" \
+    Pillow \
     runpod \
     huggingface_hub
 
