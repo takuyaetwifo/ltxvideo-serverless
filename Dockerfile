@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # 依存インストール
+RUN pip uninstall -y flash-attn 2>/dev/null || true
+
 RUN pip install --no-cache-dir \
     "diffusers>=0.32.0" \
     transformers>=4.45.0 \
