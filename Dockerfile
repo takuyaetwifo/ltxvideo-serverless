@@ -1,20 +1,24 @@
-# RunPod Serverless 用 LTX-Video ワーカー
-# TripoSRと違いコンパイル不要なのでruntimeベースで十分
-FROM pytorch/pytorch:2.4.1-cuda12.1-cudnn9-runtime
+# flash_attn非依存のクリーンベース
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 HF_HOME=/app/hf_cache
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git ffmpeg libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/*
+    python3 python3-pip git ffmpeg libgl1 libglib2.0-0 && \
+    ln -sf /usr/bin/python3 /usr/bin/python && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 依存インストール
-RUN pip uninstall -y flash-attn 2>/dev/null || true
+# PyTorchを先にインストール(flash_attnなし)
+RUN pip3 install --no-cache-dir \
+    torch==2.4.1 torchvision==0.19.1 \
+    --index-url https://download.pytorch.org/whl/cu121
 
-RUN pip install --no-cache-dir \
+# 残りの依存
+RUN pip3 install --no-cache-dir \
     "diffusers>=0.32.0" \
-    transformers>=4.45.0 \
+    "transformers>=4.45.0" \
     accelerate \
     sentencepiece \
     "imageio[ffmpeg]" \
@@ -22,9 +26,5 @@ RUN pip install --no-cache-dir \
     runpod \
     huggingface_hub
 
-# モデルはコンテナ起動時(handler.py実行時)にダウンロード
-# ビルド時にモデルを焼き込まない → ビルド高速・確実
-
 COPY handler.py /app/handler.py
 CMD ["python", "-u", "/app/handler.py"]
-# rebuilt Sat Jun 13 07:02:45     2026
