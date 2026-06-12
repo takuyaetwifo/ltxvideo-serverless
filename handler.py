@@ -10,25 +10,50 @@
      steps          : 推論ステップ数 (任意, デフォルト30)
    出力: {"video_b64": "...", "bytes": N, "frames": N}
 """
-import os, io, base64, tempfile
-from PIL import Image
-import torch
-import runpod
-from diffusers import LTXImageToVideoPipeline
-from diffusers.utils import export_to_video
+import os, io, base64, tempfile, sys, traceback
+
+print(f"Python: {sys.version}", flush=True)
+
+try:
+    from PIL import Image
+    print("PIL OK", flush=True)
+except Exception as e:
+    print(f"PIL ERROR: {e}", flush=True); sys.exit(1)
+
+try:
+    import torch
+    print(f"torch: {torch.__version__}, CUDA: {torch.cuda.is_available()}", flush=True)
+except Exception as e:
+    print(f"torch ERROR: {e}", flush=True); sys.exit(1)
+
+try:
+    import runpod
+    print("runpod OK", flush=True)
+except Exception as e:
+    print(f"runpod ERROR: {e}", flush=True); sys.exit(1)
+
+try:
+    from diffusers import LTXImageToVideoPipeline
+    from diffusers.utils import export_to_video
+    import diffusers
+    print(f"diffusers: {diffusers.__version__} OK", flush=True)
+except Exception as e:
+    print(f"diffusers ERROR: {e}", flush=True); traceback.print_exc(); sys.exit(1)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Device: {DEVICE}", flush=True)
 
-# 起動時に1回ロード
 print("LTX-Video モデルをロード中...", flush=True)
-_pipe = LTXImageToVideoPipeline.from_pretrained(
-    "Lightricks/LTX-Video",
-    torch_dtype=torch.bfloat16,
-    attn_implementation="eager",
-).to(DEVICE)
-_pipe.enable_model_cpu_offload()   # VRAM節約(16GB GPUでも動く)
-print("モデルロード完了", flush=True)
+try:
+    _pipe = LTXImageToVideoPipeline.from_pretrained(
+        "Lightricks/LTX-Video",
+        torch_dtype=torch.bfloat16,
+        attn_implementation="eager",
+    ).to(DEVICE)
+    _pipe.enable_model_cpu_offload()
+    print("モデルロード完了", flush=True)
+except Exception as e:
+    print(f"モデルロードERROR: {e}", flush=True); traceback.print_exc(); sys.exit(1)
 
 
 def handler(job):
