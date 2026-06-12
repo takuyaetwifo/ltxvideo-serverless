@@ -19,8 +19,8 @@ RUN pip install --no-cache-dir \
     runpod \
     huggingface_hub
 
-# モデルはコンテナ起動時にダウンロード(ビルド時間短縮のため)
-# HF_HOMEをコンテナ内の永続パスに設定済み
+# モデルはコンテナ起動時(handler.py実行時)にダウンロード
+# ビルド時にモデルを焼き込まない → ビルド高速・確実
 
 COPY handler.py /app/handler.py
 CMD ["python", "-u", "/app/handler.py"]
