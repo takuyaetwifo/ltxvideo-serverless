@@ -25,6 +25,7 @@ print("LTX-Video モデルをロード中...", flush=True)
 _pipe = LTXImageToVideoPipeline.from_pretrained(
     "Lightricks/LTX-Video",
     torch_dtype=torch.bfloat16,
+    attn_implementation="eager",
 ).to(DEVICE)
 _pipe.enable_model_cpu_offload()   # VRAM節約(16GB GPUでも動く)
 print("モデルロード完了", flush=True)
