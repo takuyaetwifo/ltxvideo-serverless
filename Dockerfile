@@ -19,13 +19,8 @@ RUN pip install --no-cache-dir \
     runpod \
     huggingface_hub
 
-# モデルをイメージに焼き込み(コールドスタート短縮・起動10-20秒に)
-RUN python -c "\
-from diffusers import LTXImageToVideoPipeline; \
-import torch; \
-LTXImageToVideoPipeline.from_pretrained('Lightricks/LTX-Video', torch_dtype=torch.bfloat16); \
-print('LTX-Video モデルキャッシュ完了') \
-"
+# モデルはコンテナ起動時にダウンロード(ビルド時間短縮のため)
+# HF_HOMEをコンテナ内の永続パスに設定済み
 
 COPY handler.py /app/handler.py
 CMD ["python", "-u", "/app/handler.py"]
