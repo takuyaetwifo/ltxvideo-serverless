@@ -4,56 +4,47 @@
      image_b64      : 画像のbase64 (必須)
      prompt         : 動きの指示 (任意)
      negative_prompt: ネガティブ (任意)
-     width          : 幅 px (任意, デフォルト704)
-     height         : 高さ px (任意, デフォルト480)
-     num_frames     : フレーム数 (任意, デフォルト97=約5秒)
+     width          : 幅 px (任意, デフォルト704, 32の倍数に丸める)
+     height         : 高さ px (任意, デフォルト480, 32の倍数に丸める)
+     num_frames     : フレーム数 (任意, デフォルト97=約5秒, 8n+1に丸める)
      steps          : 推論ステップ数 (任意, デフォルト30)
    出力: {"video_b64": "...", "bytes": N, "frames": N}
 """
-import os, io, base64, tempfile, sys, traceback
+import os, sys
+
+# importより前にキャッシュ先を確定。Network Volumeがあればそちら(コールドスタートDL回避)
+if os.path.isdir("/runpod-volume"):
+    os.environ["HF_HOME"] = "/runpod-volume/hf_cache"
+
+import io, base64, tempfile, traceback
 
 print(f"Python: {sys.version}", flush=True)
 
-try:
-    from PIL import Image
-    print("PIL OK", flush=True)
-except Exception as e:
-    print(f"PIL ERROR: {e}", flush=True); sys.exit(1)
-
-try:
-    import torch
-    print(f"torch: {torch.__version__}, CUDA: {torch.cuda.is_available()}", flush=True)
-except Exception as e:
-    print(f"torch ERROR: {e}", flush=True); sys.exit(1)
-
-try:
-    import runpod
-    print("runpod OK", flush=True)
-except Exception as e:
-    print(f"runpod ERROR: {e}", flush=True); sys.exit(1)
-
-try:
-    from diffusers import LTXImageToVideoPipeline
-    from diffusers.utils import export_to_video
-    import diffusers
-    print(f"diffusers: {diffusers.__version__} OK", flush=True)
-except Exception as e:
-    print(f"diffusers ERROR: {e}", flush=True); traceback.print_exc(); sys.exit(1)
+from PIL import Image
+import torch
+import runpod
+from diffusers import LTXImageToVideoPipeline
+from diffusers.utils import export_to_video
+import diffusers, transformers
+print(f"torch={torch.__version__} diffusers={diffusers.__version__} transformers={transformers.__version__} CUDA={torch.cuda.is_available()}", flush=True)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Device: {DEVICE}", flush=True)
 
-print("LTX-Video モデルをロード中...", flush=True)
-try:
-    _pipe = LTXImageToVideoPipeline.from_pretrained(
-        "Lightricks/LTX-Video",
-        torch_dtype=torch.bfloat16,
-        attn_implementation="eager",
-    ).to(DEVICE)
-    _pipe.enable_model_cpu_offload()
-    print("モデルロード完了", flush=True)
-except Exception as e:
-    print(f"モデルロードERROR: {e}", flush=True); traceback.print_exc(); sys.exit(1)
+print("LTX-Video モデルをロード中...(初回は約15GBダウンロード)", flush=True)
+_pipe = LTXImageToVideoPipeline.from_pretrained(
+    "Lightricks/LTX-Video",
+    torch_dtype=torch.bfloat16,
+)
+# .to(cuda) と enable_model_cpu_offload は排他。VRAMで切替
+vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9 if DEVICE == "cuda" else 0
+if vram_gb >= 20:
+    _pipe.to(DEVICE)          # 24GB級: 全載せが最速
+    print(f"VRAM {vram_gb:.0f}GB -> 全モデルGPU載せ", flush=True)
+else:
+    _pipe.enable_model_cpu_offload()   # 16GB級: T5-XXLが重いのでオフロード
+    print(f"VRAM {vram_gb:.0f}GB -> CPUオフロード", flush=True)
+_pipe.vae.enable_tiling()     # 高解像度VAEデコードのOOM保険
+print("モデルロード完了", flush=True)
 
 
 def handler(job):
@@ -66,7 +57,7 @@ def handler(job):
     negative = inp.get("negative_prompt", "worst quality, blurry, jittery, distorted, artifacts")
     width    = int(inp.get("width",  704))
     height   = int(inp.get("height", 480))
-    frames   = int(inp.get("num_frames", 97))   # 97 ≈ 5秒 @25fps
+    frames   = int(inp.get("num_frames", 97))
     steps    = int(inp.get("steps", 30))
     fps      = int(inp.get("fps", 25))
     seed     = int(inp.get("seed", 42))
@@ -74,11 +65,12 @@ def handler(job):
     try:
         raw   = base64.b64decode(b64)
         image = Image.open(io.BytesIO(raw)).convert("RGB")
-        # LTX-Videoは8の倍数サイズが必要
-        width  = (width  // 8) * 8
-        height = (height // 8) * 8
+        # LTX-Videoは32の倍数サイズ・フレーム数は8n+1が必要
+        width  = max(32, width  // 32 * 32)
+        height = max(32, height // 32 * 32)
+        frames = max(9, (frames - 1) // 8 * 8 + 1)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             result = _pipe(
                 image=image,
                 prompt=prompt,
@@ -104,7 +96,6 @@ def handler(job):
             "frames":    frames,
         }
     except Exception as e:
-        import traceback
         return {"error": str(e), "trace": traceback.format_exc()[-2000:]}
 
 
